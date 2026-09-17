@@ -17,8 +17,12 @@
  *   curl -N -X POST http://localhost:3000/chat \
  *     -H 'Content-Type: application/json' \
  *     -d '{"message":"2的10次方是多少？","sessionId":"s1"}'
+ *
+ * 浏览器打开 http://localhost:3000/ 即是配套的对话页面（public/index.html，
+ * 原生 HTML + fetch ReadableStream 解析 SSE，无构建步骤）。
  */
 import "dotenv/config";
+import path from "node:path";
 import express from "express";
 import { MemorySaver } from "@langchain/langgraph";
 import { agent } from "./agent.js";
@@ -30,6 +34,9 @@ agent.checkpointer = new MemorySaver();
 
 const app = express();
 app.use(express.json());
+
+// 浏览器端的对话页面：public/index.html（原生 HTML，无构建步骤）
+app.use(express.static(path.resolve(process.cwd(), "public")));
 
 // 允许浏览器跨域调用（开发用；生产环境应收敛来源）
 app.use((req, res, next) => {
@@ -111,5 +118,6 @@ app.post("/chat", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`HTTP 服务已启动：http://localhost:${PORT}`);
+  console.log(`对话页面：http://localhost:${PORT}/`);
   console.log('POST /chat  {"message":"你的问题","sessionId":"可选会话id"}');
 });

@@ -6,7 +6,7 @@
 
 1. 单次提问（流式展示全过程）：`npm start -- "你的问题"`
 2. 交互式多轮对话：`npm run chat`（输入 `exit` 或 `quit` 退出）
-3. HTTP 服务：`npm run server`，接口为 `POST /chat`，SSE 流式返回
+3. HTTP 服务：`npm run server`，接口为 `POST /chat`，SSE 流式返回；浏览器打开 `http://localhost:3000/` 是配套对话页面
 
 ## 配置
 

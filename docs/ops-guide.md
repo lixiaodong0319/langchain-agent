@@ -10,7 +10,11 @@ npm run server
 
 ## 健康自检
 
-启动成功后终端会打印 `HTTP 服务已启动：http://localhost:3000`，即可用 curl 发起请求验证：
+启动成功后终端会打印 `HTTP 服务已启动：http://localhost:3000`。
+
+浏览器直接打开 `http://localhost:3000/` 即可对话（无需另开前端）：回答以打字机效果逐字出现，工具调用与返回以折叠块列出，点击展开查看入参和结果。页面会话 id 存在 sessionStorage，同一标签页多轮追问会带上上下文。
+
+也可以用 curl 验证接口：
 
 ```bash
 curl -N -X POST http://localhost:3000/chat \

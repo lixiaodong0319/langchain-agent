@@ -12,6 +12,7 @@
 - 配置二选一：`.env` 文件或系统环境变量，环境变量优先
 - 多 Agent 协作：一个主管 agent 把任务派给专员 agent（文档问答 / 计算），agent 作为工具逐层编排
 - 手写状态图：用 `StateGraph` 从零搭建 agent，看清 `createAgent` 内部结构
+- 内置 Web 对话页面：打开 `http://localhost:3000/` 即可用，打字机效果 + 工具调用折叠展示
 
 ## 环境要求
 
@@ -118,6 +119,15 @@ curl -N -X POST http://localhost:3000/chat \
 
 `sessionId` 映射到 LangGraph 线程：**同名会话共享上下文**，可带同一 `sessionId` 多轮追问，不同 `sessionId` 互相隔离（记忆在服务进程内存中，重启即清空）。
 
+### 浏览器对话页面
+
+服务启动后直接打开 <http://localhost:3000/> 即可对话，无需另开前端工程：
+
+- 原生 HTML + CSS + JS（`public/index.html`，零依赖、无构建步骤），由 `express.static` 托管
+- 用 `fetch` + `ReadableStream` 读取 SSE（浏览器原生 `EventSource` 只能发 GET，这里需要 POST），逐块解析 `data:` 行
+- token 增量实时追加到气泡，形成打字机效果；工具调用与返回以**折叠块**展示，点击展开查看入参和结果
+- 会话 id 存在 `sessionStorage`（每个标签页一个），刷新页面不丢上下文，与服务端 `thread_id` 对应
+
 ## 本地文档问答（RAG）
 
 把知识文档（`.md` / `.txt`）放进 `docs/` 目录，模型在回答相关问题时会检索文档内容：
@@ -127,7 +137,7 @@ npm run chat
 # 你：HTTP 服务怎么启动？
 ```
 
-实现（见 `src/rag.ts`）：文档 → 切分（500 字符/50 重叠）→ Embedding 向量化 → 查询时余弦相似度 top-3，结果作为 `retrieve_docs` 工具返回给模型。所有入口（CLI / chat / HTTP / team 的文档专员）都会自动获得该工具。
+实现（见 `src/rag.ts`）：文档 → 切分（500 字符/50 重叠）→ Embedding 向量化 → 查询时余弦相似度 top-3，结果作为 `retrieve_docs` 工具返回给模型。三个入口（CLI / chat / HTTP）以及 team 里的文档专员都会自动获得该工具。
 
 - 索引首次使用时构建，改文档需重启进程生效
 - Embedding 用**本地模型**（transformers.js + ONNX，离线免费）：默认 `Xenova/bge-small-zh-v1.5`（中文效果好），首次使用自动下载约 100MB 到 `.cache/`，之后离线可用；可在 `.env` 用 `AGENT_EMBEDDING_MODEL` 换成其他模型
@@ -191,11 +201,6 @@ START → model ──有工具调用──▶ tools ──▶ model
 
 ## 项目结构
 
-- 索引首次使用时构建，改文档需重启进程生效
-- Embedding 用**本地模型**（transformers.js + ONNX，离线免费）：默认 `Xenova/bge-small-zh-v1.5`（中文效果好），首次使用自动下载约 100MB 到 `.cache/`，之后离线可用；可在 `.env` 用 `AGENT_EMBEDDING_MODEL` 换成其他模型
-
-## 项目结构
-
 ```
 src/
   agent.ts     Agent 编排：模型实例 + 工具注册（createAgent）
@@ -209,6 +214,7 @@ src/
   graph.ts     手写状态图：StateGraph + 节点 + 条件边（createAgent 的底层）
   graph-chat.ts 手绘图演示入口：多轮对话（npm run graph）
 docs/          知识文档目录（RAG 数据源，.md / .txt）
+public/        Web 对话页面（index.html，原生 HTML/JS，express 静态托管）
 .vscode/       调试配置（launch.json，F5 断点调试各入口）
 ```
 

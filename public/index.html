@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>langchain-agent 对话</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #171a21;
+        --border: #262b36;
+        --text: #e6e9ef;
+        --muted: #8b93a7;
+        --accent: #6ea8fe;
+        --tool: #f0b429;
+        --result: #4ec9b0;
+        --user: #2b3a55;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      header {
+        width: 100%;
+        max-width: 820px;
+        padding: 18px 20px 10px;
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      h1 { font-size: 17px; margin: 0; font-weight: 600; }
+      header .hint { color: var(--muted); font-size: 12.5px; }
+      header .sess {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 12.5px;
+        font-family: ui-monospace, Consolas, monospace;
+      }
+      #log {
+        width: 100%;
+        max-width: 820px;
+        flex: 1;
+        padding: 4px 20px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .row { display: flex; }
+      .row.user { justify-content: flex-end; }
+      .bubble {
+        max-width: 78%;
+        padding: 10px 14px;
+        border-radius: 14px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: var(--panel);
+        border: 1px solid var(--border);
+      }
+      .row.user .bubble { background: var(--user); border-color: #3a4d70; }
+      .ai .bubble { max-width: 100%; background: transparent; border: none; padding: 0; }
+      .cursor::after {
+        content: "▌";
+        color: var(--accent);
+        animation: blink 1s steps(2) infinite;
+      }
+      @keyframes blink { 50% { opacity: 0; } }
+      details.step {
+        border-left: 2px solid var(--border);
+        padding: 2px 0 2px 12px;
+        margin: 6px 0;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+      details.step summary { cursor: pointer; color: var(--tool); }
+      details.step.result summary { color: var(--result); }
+      details.step pre {
+        margin: 6px 0 0;
+        padding: 8px 10px;
+        background: #10131a;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 12.5px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .err { color: #ff6b6b; font-size: 13.5px; }
+      .status { color: var(--muted); font-size: 13px; }
+      form {
+        width: 100%;
+        max-width: 820px;
+        padding: 12px 20px 22px;
+        display: flex;
+        gap: 10px;
+        position: sticky;
+        bottom: 0;
+        background: linear-gradient(transparent, var(--bg) 28%);
+      }
+      input[type="text"] {
+        flex: 1;
+        padding: 11px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        font-size: 15px;
+        outline: none;
+      }
+      input[type="text"]:focus { border-color: var(--accent); }
+      button {
+        padding: 11px 20px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--accent);
+        color: #0b1220;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>langchain-agent</h1>
+      <span class="hint">工具调用与 RAG 检索过程以折叠块展示，点击展开</span>
+      <span class="sess">session: <span id="session"></span></span>
+    </header>
+
+    <div id="log"></div>
+
+    <form id="form">
+      <input id="input" type="text" placeholder="问点什么，比如：HTTP 服务怎么启动？" autocomplete="off" />
+      <button id="send" type="submit">发送</button>
+    </form>
+
+    <script>
+      // 每个浏览器标签页一个会话 id：同一 id 的多轮提问共享上下文（对应服务端 thread_id）
+      const sessionId = (() => {
+        const key = "agent-session-id";
+        const saved = sessionStorage.getItem(key);
+        if (saved) return saved;
+        const id = "web-" + Math.random().toString(36).slice(2, 10);
+        sessionStorage.setItem(key, id);
+        return id;
+      })();
+      document.getElementById("session").textContent = sessionId;
+
+      const log = document.getElementById("log");
+      const form = document.getElementById("form");
+      const input = document.getElementById("input");
+      const send = document.getElementById("send");
+      let busy = false;
+
+      function el(tag, cls, text) {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function addUser(text) {
+        const row = el("div", "row user");
+        row.appendChild(el("div", "bubble", text));
+        log.appendChild(row);
+        row.scrollIntoView({ block: "end" });
+      }
+
+      /** 工具调用 / 工具返回：默认折叠，避免刷屏 */
+      function addStep(kind, name, data) {
+        const box = el("details", "step " + kind);
+        box.appendChild(el("summary", null, (kind === "result" ? "← 返回 " : "→ 调用 ") + name));
+        box.appendChild(el("pre", null, pretty(data)));
+        return box;
+      }
+
+      /** 工具入参外面套了一层 { input: "{\"expression\":\"1+1\"}" }，拆开更好读 */
+      function pretty(data) {
+        let value = data;
+        if (value && typeof value === "object" && typeof value.input === "string") {
+          try {
+            value = JSON.parse(value.input);
+          } catch {
+            value = value.input;
+          }
+        }
+        return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      }
+
+      async function ask(message) {
+        addUser(message);
+        const answer = el("div", "row ai");
+        const bubble = el("div", "bubble cursor");
+        answer.appendChild(bubble);
+        log.appendChild(answer);
+        bubble.scrollIntoView({ block: "end" });
+
+        let text = "";
+        let pendingName = null; // 等待配对的工具名（工具调用与返回成对出现）
+
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, sessionId }),
+        });
+        if (!res.ok || !res.body) {
+          bubble.classList.remove("cursor");
+          bubble.appendChild(el("div", "err", "请求失败：" + res.status));
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          // SSE 以空行分隔事件；最后一段可能不完整，留在 buf 里等下一块
+          const parts = buf.split("\n\n");
+          buf = parts.pop() ?? "";
+          for (const part of parts) {
+            const line = part.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            let ev;
+            try {
+              ev = JSON.parse(line.slice(5).trim());
+            } catch {
+              continue;
+            }
+
+            if (ev.type === "token") {
+              text += ev.content;
+              bubble.textContent = text;
+              bubble.scrollIntoView({ block: "end" });
+            } else if (ev.type === "tool") {
+              bubble.appendChild(addStep("call", ev.name, ev.data));
+              pendingName = ev.name;
+            } else if (ev.type === "tool_result") {
+              bubble.appendChild(addStep("result", ev.name ?? pendingName ?? "tool", ev.data));
+              pendingName = null;
+            } else if (ev.type === "error") {
+              bubble.appendChild(el("div", "err", "出错：" + ev.message));
+            }
+          }
+        }
+        bubble.classList.remove("cursor");
+        if (!text && !bubble.querySelector("details")) bubble.textContent = "(没有返回内容)";
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const message = input.value.trim();
+        if (!message || busy) return;
+        busy = true;
+        send.disabled = true;
+        input.disabled = true;
+        input.value = "";
+        try {
+          await ask(message);
+        } catch (err) {
+          const box = el("div", "row ai");
+          box.appendChild(el("div", "err", "连接失败：" + (err && err.message ? err.message : err)));
+          log.appendChild(box);
+        } finally {
+          busy = false;
+          send.disabled = false;
+          input.disabled = false;
+          input.focus();
+        }
+      });
+
+      input.focus();
+    </script>
+  </body>
+</html>
