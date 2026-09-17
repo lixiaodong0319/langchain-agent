@@ -1,0 +1,75 @@
+{
+  // 断点调试配置。tsx 直接作为 node 的 loader 启动，所以打断点能命中 src/*.ts
+  // 源码（而不是编译产物）。按 F5 时在左侧下拉里选要跑哪个入口。
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // 多轮对话（createAgent 版）—— 交互式，需要 integratedTerminal 才能输入
+      "name": "调试 chat（多轮对话）",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/src/chat.ts",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // 手绘状态图 —— 想看 modelNode / toolsNode / shouldContinue 就走这个
+      "name": "调试 graph（手写状态图）",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/src/graph-chat.ts",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // 主管-专员多 Agent
+      "name": "调试 team（多 Agent）",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/src/team-chat.ts",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // HTTP 服务：启动后在 src/server.ts 的 POST /chat 里打断点，
+      // 再用 curl 发请求触发
+      "name": "调试 server（HTTP 服务）",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/src/server.ts",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // 单次提问：在下方 args 里改问题，改完直接 F5
+      "name": "调试 index（单次提问）",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${workspaceFolder}/src/index.ts",
+      "args": ["2的10次方是多少？"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // 调试当前打开的文件（不依赖上面的入口列表）
+      "name": "调试当前文件",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx"],
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

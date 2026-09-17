@@ -8,6 +8,7 @@
     "chat": "tsx src/chat.ts",
     "server": "tsx src/server.ts",
     "team": "tsx src/team-chat.ts",
+    "graph": "tsx src/graph-chat.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

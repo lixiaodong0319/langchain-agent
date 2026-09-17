@@ -11,6 +11,7 @@
 - 流式输出：实时打印模型的 token 增量与工具调用过程（`streamEvents` v2）
 - 配置二选一：`.env` 文件或系统环境变量，环境变量优先
 - 多 Agent 协作：一个主管 agent 把任务派给专员 agent（文档问答 / 计算），agent 作为工具逐层编排
+- 手写状态图：用 `StateGraph` 从零搭建 agent，看清 `createAgent` 内部结构
 
 ## 环境要求
 
@@ -126,7 +127,7 @@ npm run chat
 # 你：HTTP 服务怎么启动？
 ```
 
-实现（见 `src/rag.ts`）：文档 → 切分（500 字符/50 重叠）→ Embedding 向量化 → 查询时余弦相似度 top-3，结果作为 `retrieve_docs` 工具返回给模型。三个入口（CLI / chat / HTTP）以及 team 里的文档专员都会自动获得该工具。
+实现（见 `src/rag.ts`）：文档 → 切分（500 字符/50 重叠）→ Embedding 向量化 → 查询时余弦相似度 top-3，结果作为 `retrieve_docs` 工具返回给模型。所有入口（CLI / chat / HTTP / team 的文档专员）都会自动获得该工具。
 
 - 索引首次使用时构建，改文档需重启进程生效
 - Embedding 用**本地模型**（transformers.js + ONNX，离线免费）：默认 `Xenova/bge-small-zh-v1.5`（中文效果好），首次使用自动下载约 100MB 到 `.cache/`，之后离线可用；可在 `.env` 用 `AGENT_EMBEDDING_MODEL` 换成其他模型
@@ -147,7 +148,51 @@ npm run team
 
 实现见 `src/team.ts`：`createAgent` 造出专员，用 `tool()` 把 `worker.invoke` 包成主管的工具。这是 LangGraph 多 agent 编排最常见的一种——agent 作为工具，层级可以无限往下套（每个专员内部又可以挂自己的专员）。
 
+## 手写状态图（看清 createAgent 内部）
+
+```bash
+npm run graph
+```
+
+与 `chat` 相同的多轮对话，但驱动它的不是 `createAgent` 的隐藏循环，而是一张手工搭建的 `StateGraph`（见 `src/graph.ts`）：
+
+```
+START → model ──有工具调用──▶ tools ──▶ model
+                └──没有───────▶ END
+```
+
+四个概念对应图里的四段代码：
+
+- **状态**：`Annotation.Root` 声明状态字段——`messages` 用累加式 reducer 接起历史；`steps` 用覆盖式当循环预算
+- **节点**：`addNode` 挂两个节点——`model`（调 LLM）和 `tools`（执行 AI 消息里的 tool_calls）
+- **边**：普通边定顺序，`addConditionalEdges` 定分支（有工具调用就回到 model，没有就 END）
+- **记忆与预算**：`compile({ checkpointer })` 让同一 thread 自动续记忆，跨轮不丢；`steps` 字段防模型无限循环
+
+和 `createAgent` 的两个关键差异（也正是它替你隐藏的细节）：模型必须先 `bindTools` 才知道有哪些工具可用；部分兼容接口的模型会把工具调用写成 `<|tool_calls|>` 文本标注，需要清掉再存历史。
+
+## 调试（VS Code 断点）
+
+`.vscode/launch.json` 已配好断点调试：打开左侧「运行和调试」（`Ctrl+Shift+D`），在下拉里选入口，按 `F5` 启动即可在 `src/*.ts` 源码行上打断点（tsx 作为 loader 直接跑 TS，无需先编译）。
+
+| 配置 | 入口 | 用途 |
+| ---- | ---- | ---- |
+| 调试 chat | `src/chat.ts` | 多轮对话（createAgent 版） |
+| 调试 graph | `src/graph-chat.ts` | 手写状态图；想看 `modelNode` / `toolsNode` / `shouldContinue` 走这个 |
+| 调试 team | `src/team-chat.ts` | 主管-专员多 Agent |
+| 调试 server | `src/server.ts` | HTTP 服务；在 `POST /chat` 里打断点，再用 curl 触发 |
+| 调试 index | `src/index.ts` | 单次提问，问题写在配置的 `args` 里 |
+| 调试当前文件 | 当前编辑器打开的文件 | 不依赖入口列表 |
+
+几个提示：
+
+- 交互式入口（chat / graph / team）用的是 `"console": "integratedTerminal"`，这样才能在调试时输入问题
+- 想进 `node_modules` 里看 LangChain 内部（比如 `createAgent` 到底做了什么），把 `skipFiles` 里的 `"<node_internals>/**"` 之外再删掉，或在调试面板里关掉「跳过外部代码」
+- `npm run typecheck` 可以单独跑类型检查，不必启动
+
 ## 项目结构
+
+- 索引首次使用时构建，改文档需重启进程生效
+- Embedding 用**本地模型**（transformers.js + ONNX，离线免费）：默认 `Xenova/bge-small-zh-v1.5`（中文效果好），首次使用自动下载约 100MB 到 `.cache/`，之后离线可用；可在 `.env` 用 `AGENT_EMBEDDING_MODEL` 换成其他模型
 
 ## 项目结构
 
@@ -161,7 +206,10 @@ src/
   server.ts    HTTP 服务入口：POST /chat，SSE 流式返回
   team.ts      多 Agent 协作：主管 agent + 两个专员 agent（agent 作为工具）
   team-chat.ts 多 Agent 演示入口：派活 + 汇总的交互式对话
+  graph.ts     手写状态图：StateGraph + 节点 + 条件边（createAgent 的底层）
+  graph-chat.ts 手绘图演示入口：多轮对话（npm run graph）
 docs/          知识文档目录（RAG 数据源，.md / .txt）
+.vscode/       调试配置（launch.json，F5 断点调试各入口）
 ```
 
 ## 原理简述
