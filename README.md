@@ -116,15 +116,31 @@ curl -N -X POST http://localhost:3000/chat \
 
 `sessionId` 映射到 LangGraph 线程：**同名会话共享上下文**，可带同一 `sessionId` 多轮追问，不同 `sessionId` 互相隔离（记忆在服务进程内存中，重启即清空）。
 
+## 本地文档问答（RAG）
+
+把知识文档（`.md` / `.txt`）放进 `docs/` 目录，模型在回答相关问题时会检索文档内容：
+
+```bash
+npm run chat
+# 你：HTTP 服务怎么启动？
+```
+
+实现（见 `src/rag.ts`）：文档 → 切分（500 字符/50 重叠）→ Embedding 向量化 → 查询时余弦相似度 top-3，结果作为 `retrieve_docs` 工具返回给模型。三个入口（CLI / chat / HTTP）都会自动获得该工具。
+
+- 索引首次使用时构建，改文档需重启进程生效
+- Embedding 用**本地模型**（transformers.js + ONNX，离线免费）：默认 `Xenova/bge-small-zh-v1.5`（中文效果好），首次使用自动下载约 100MB 到 `.cache/`，之后离线可用；可在 `.env` 用 `AGENT_EMBEDDING_MODEL` 换成其他模型
+
 ## 项目结构
 
 ```
 src/
   agent.ts     Agent 编排：模型实例 + 工具注册（createAgent）
   tools.ts     自定义工具：calculator、current_time
+  rag.ts       本地文档检索（RAG）：切分 + Embedding + 余弦相似度
   index.ts     流式 CLI 入口：streamEvents 监听并打印事件
   chat.ts      多轮对话入口：MemorySaver 检查点 + 固定 thread_id
   server.ts    HTTP 服务入口：POST /chat，SSE 流式返回
+docs/          知识文档目录（RAG 数据源，.md / .txt）
 ```
 
 ## 原理简述

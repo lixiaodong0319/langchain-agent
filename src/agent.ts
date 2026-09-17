@@ -1,6 +1,7 @@
 import { createAgent } from "langchain";
 import { ChatOpenAI } from "@langchain/openai";
 import { calculator, currentTime } from "./tools.js";
+import { retrieveDocs } from "./rag.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -20,7 +21,7 @@ function requiredEnv(name: string): string {
 // 用 ChatOpenAI 实例而不是 "openai:模型名" 字符串简写：
 // 只有实例才能挂 baseURL，第三方供应商必须靠它换接口地址。
 // 这里不传 temperature —— 部分供应商的模型不接受该参数，会直接报错。
-const model = new ChatOpenAI({
+export const model = new ChatOpenAI({
   model: requiredEnv("AGENT_MODEL"),
   apiKey: requiredEnv("AGENT_API_KEY"),
   configuration: {
@@ -30,5 +31,5 @@ const model = new ChatOpenAI({
 
 export const agent = createAgent({
   model,
-  tools: [calculator, currentTime],
+  tools: [calculator, currentTime, retrieveDocs],
 });
