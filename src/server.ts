@@ -5,6 +5,7 @@
  *   { "message": "2的10次方是多少？", "sessionId": "s1" }
  *   sessionId 可选：同名 sessionId 共享记忆（映射到 LangGraph 的 thread_id），
  *   不同 sessionId 互相隔离；不传则用 "default"。
+ *   记忆用 SQLite 落盘（src/memory.ts，.data/memory.db），服务重启后仍在。
  *
  * 响应是 text/event-stream，每行 `data: <json>` 是一条事件：
  *   {"type":"token","content":"2"}                       模型 token 增量（打字机）
@@ -24,13 +25,14 @@
 import "dotenv/config";
 import path from "node:path";
 import express from "express";
-import { MemorySaver } from "@langchain/langgraph";
 import { agent } from "./agent.js";
+import { memory } from "./memory.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 
-// 挂上内存检查点：同一 sessionId 的多次请求共享历史（进程内存，重启即失）
-agent.checkpointer = new MemorySaver();
+// 挂上落盘检查点：同一 sessionId 的多次请求共享历史，且服务重启后仍在
+// （记忆存在 .data/memory.db，删掉该文件即清空）
+agent.checkpointer = memory;
 
 const app = express();
 app.use(express.json());

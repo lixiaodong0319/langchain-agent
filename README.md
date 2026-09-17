@@ -13,6 +13,7 @@
 - 多 Agent 协作：一个主管 agent 把任务派给专员 agent（文档问答 / 计算），agent 作为工具逐层编排
 - 手写状态图：用 `StateGraph` 从零搭建 agent，看清 `createAgent` 内部结构
 - 内置 Web 对话页面：打开 `http://localhost:3000/` 即可用，打字机效果 + 工具调用折叠展示
+- 对话持久化：记忆存进本地 SQLite（`.data/memory.db`），进程重启后上下文还在
 
 ## 环境要求
 
@@ -91,7 +92,13 @@ AI：2 的 10 次方是 **1024**。
 AI：2 的 10 次方是 1024，再加 10 就是 **1034**。
 ```
 
-实现方式：给 agent 挂 `MemorySaver` 检查点，并以固定 `thread_id` 作为线程标识（见 `src/chat.ts`）。记忆只存在于单次运行的内存里，进程退出即清空。
+实现方式：给 agent 挂检查点，并以固定 `thread_id` 作为线程标识（见 `src/chat.ts`）。记忆用 SQLite **落盘**（`src/memory.ts`，文件在 `.data/memory.db`，已 gitignore），所以 Ctrl+C 之后重新 `npm run chat`，仍然接着上一段上下文聊。
+
+```
+（已从上次的对话恢复 12 条消息，可以直接接着问）
+```
+
+想清空记忆，删掉 `.data/memory.db` 即可。换掉默认的 `THREAD_ID`（`src/chat.ts` 顶部）可以另起一段互不干扰的会话。
 
 ## HTTP 服务（SSE 流式）
 
@@ -117,7 +124,9 @@ curl -N -X POST http://localhost:3000/chat \
 | `{"type":"done"}` | 本轮回答结束 |
 | `{"type":"error","message":"..."}` | 出错 |
 
-`sessionId` 映射到 LangGraph 线程：**同名会话共享上下文**，可带同一 `sessionId` 多轮追问，不同 `sessionId` 互相隔离（记忆在服务进程内存中，重启即清空）。
+`sessionId` 映射到 LangGraph 线程：**同名会话共享上下文**，可带同一 `sessionId` 多轮追问，不同 `sessionId` 互相隔离。记忆同样用 SQLite 落盘（`.data/memory.db`），**重启服务后会话仍在**；想清空就删掉该文件。
+
+> 注意：SQLite 是进程级独占写锁，不要把 `chat` 和 `server` 同时指向同一份 db 跑。
 
 ### 浏览器对话页面
 
@@ -137,7 +146,7 @@ npm run chat
 # 你：HTTP 服务怎么启动？
 ```
 
-实现（见 `src/rag.ts`）：文档 → 切分（500 字符/50 重叠）→ Embedding 向量化 → 查询时余弦相似度 top-3，结果作为 `retrieve_docs` 工具返回给模型。三个入口（CLI / chat / HTTP）以及 team 里的文档专员都会自动获得该工具。
+实现（见 `src/rag.ts`）：文档 → 切分（500 字符/50 重叠）→ Embedding 向量化 → 查询时余弦相似度 top-3，结果作为 `retrieve_docs` 工具返回给模型。所有入口（CLI / chat / HTTP / team 的文档专员）都会自动获得该工具。
 
 - 索引首次使用时构建，改文档需重启进程生效
 - Embedding 用**本地模型**（transformers.js + ONNX，离线免费）：默认 `Xenova/bge-small-zh-v1.5`（中文效果好），首次使用自动下载约 100MB 到 `.cache/`，之后离线可用；可在 `.env` 用 `AGENT_EMBEDDING_MODEL` 换成其他模型
@@ -206,6 +215,7 @@ src/
   agent.ts     Agent 编排：模型实例 + 工具注册（createAgent）
   tools.ts     自定义工具：calculator、current_time
   rag.ts       本地文档检索（RAG）：切分 + Embedding + 余弦相似度
+  memory.ts    持久化记忆：SqliteSaver 检查点（.data/memory.db）
   index.ts     流式 CLI 入口：streamEvents 监听并打印事件
   chat.ts      多轮对话入口：MemorySaver 检查点 + 固定 thread_id
   server.ts    HTTP 服务入口：POST /chat，SSE 流式返回
@@ -215,6 +225,7 @@ src/
   graph-chat.ts 手绘图演示入口：多轮对话（npm run graph）
 docs/          知识文档目录（RAG 数据源，.md / .txt）
 public/        Web 对话页面（index.html，原生 HTML/JS，express 静态托管）
+.data/         运行数据（SQLite 记忆库，自动创建，已 gitignore）
 .vscode/       调试配置（launch.json，F5 断点调试各入口）
 ```
 
